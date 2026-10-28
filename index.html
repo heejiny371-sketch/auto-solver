@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>자동 문제 풀이 카메라</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<style>
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --fg:#14202b; --muted:#5d6b78; --line:#d9e0e6;
+  --accent:#0b6bcb; --ok:#13804b; --warn:#b26a00; --bad:#c0392b;
+  --font:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f151b; --panel:#17202a; --fg:#e7edf2; --muted:#93a1ad; --line:#2a3642;
+  --accent:#4ea3ff; --ok:#3fbf7f; --warn:#e0a03a; --bad:#ef6b5e; color-scheme:dark;}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);
+  padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
+.wrap{max-width:900px;margin:0 auto;display:grid;gap:12px;padding-block:12px}
+@media(min-width:820px){.wrap{grid-template-columns:1fr 1fr;align-items:start}}
+.cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4;max-height:70vh}
+@media(min-width:820px){.cam{aspect-ratio:4/3}}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.status{position:absolute;left:10px;top:10px;padding:5px 10px;border-radius:999px;font-size:13px;font-weight:600;
+  background:rgba(0,0,0,.6);color:#fff;display:flex;gap:6px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:#9aa}
+.dot.watch{background:#4ade80}.dot.busy{background:#fbbf24;animation:p 1s infinite}.dot.err{background:#f87171}
+@keyframes p{50%{opacity:.3}}
+.bar{position:absolute;left:0;right:0;bottom:0;padding:12px;display:flex;gap:8px;justify-content:center;
+  background:linear-gradient(transparent,rgba(0,0,0,.55))}
+button{font:inherit;font-weight:600;border:0;border-radius:12px;padding:12px 18px;cursor:pointer}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.primary{background:var(--accent);color:#fff;flex:1;max-width:260px;font-size:16px}
+.ghost{background:rgba(255,255,255,.18);color:#fff}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
+.panel h2{margin:0 0 6px;font-size:13px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.answer{font-size:22px;font-weight:700;color:var(--ok);margin:4px 0 10px;overflow-wrap:anywhere}
+.problem{color:var(--muted);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:10px}
+.expl{white-space:pre-wrap;overflow-wrap:anywhere}
+.msg{color:var(--warn);font-weight:600}
+.history{display:grid;gap:8px;margin-top:8px}
+.history div{font-size:13px;border-top:1px solid var(--line);padding-top:8px;overflow-wrap:anywhere}
+.setup{display:grid;gap:10px}
+.setup input,.setup select{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:100%}
+.setup label{font-size:13px;color:var(--muted)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.small{font-size:12px;color:var(--muted)}
+.setbtn{background:var(--accent);color:#fff}
+.katex{font-size:1.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">대기 중</span></div>
+    <div class="bar">
+      <button class="ghost" id="toggleBtn">자동 ON</button>
+      <button class="primary" id="solveBtn">인식</button>
+      <button class="ghost" id="flipBtn">전환</button>
+    </div>
+  </div>
+
+  <div style="display:grid;gap:12px;min-width:0">
+    <div class="panel" id="setupPanel">
+      <h2>설정</h2>
+      <div class="setup">
+        <div><label for="apiKey">Anthropic API 키 (이 기기에만 저장)</label>
+          <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></div>
+        <div><label for="model">모델</label>
+          <select id="model">
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (빠름·권장)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5 (어려운 문제)</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5 (가장 빠름)</option>
+          </select></div>
+        <div class="row">
+          <label for="sens" style="flex:1">변화 감지 민감도</label>
+          <input id="sens" type="range" min="1" max="10" value="5" style="flex:2">
+        </div>
+        <button class="setbtn" id="startBtn">카메라 시작</button>
+        <div class="small">문제를 비추고 1초쯤 가만히 있으면 자동으로 풀어요. 문제를 바꾸면 다시 인식합니다.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>정답</h2>
+      <div id="result"><div class="small">아직 인식한 문제가 없어요.</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>최근 기록</h2>
+      <div class="history" id="history"><div class="small">기록 없음</div></div>
+    </div>
+  </div>
+</div>
+
+<canvas id="small" width="48" height="36" hidden></canvas>
+<canvas id="big" hidden></canvas>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $('video'), small = $('small'), big = $('big');
+const sctx = small.getContext('2d', {willReadFrequently:true});
+let stream = null, facing = 'environment', auto = true;
+let prevFrame = null, solvedFrame = null, stableSince = 0;
+let busy = false, lastProblem = '', controller = null, cooldownUntil = 0;
+const history = [];
+
+try { $('apiKey').value = localStorage.getItem('as_key') || '';
+      $('model').value = localStorage.getItem('as_model') || 'claude-sonnet-5-5'; } catch(e){}
+
+function setStatus(text, kind){ $('statusText').textContent = text; $('dot').className = 'dot ' + (kind||''); }
+
+async function startCam(){
+  const key = $('apiKey').value.trim();
+  if(!key){ setStatus('API 키를 입력하세요','err'); return; }
+  try { localStorage.setItem('as_key', key); localStorage.setItem('as_model', $('model').value); } catch(e){}
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1920}, height:{ideal:1440}}, audio:false});
+    video.srcObject = stream; await video.play();
+    $('setupPanel').querySelector('.setbtn').textContent = '설정 저장 / 카메라 재시작';
+    setStatus(auto ? '문제 찾는 중' : '자동 꺼짐', 'watch');
+    try { await navigator.wakeLock?.request('screen'); } catch(e){}
+  }catch(e){
+    setStatus('카메라 권한이 필요해요 (https 또는 localhost)','err');
+  }
+}
+
+// Downscaled grayscale frame for change detection
+function grab(){
+  if(!video.videoWidth) return null;
+  sctx.drawImage(video, 0, 0, 48, 36);
+  const d = sctx.getImageData(0,0,48,36).data, g = new Float32Array(48*36);
+  let sum=0; for(let i=0;i<g.length;i++){ g[i]=(d[i*4]*.3+d[i*4+1]*.59+d[i*4+2]*.11); sum+=g[i]; }
+  const mean = sum/g.length; let v=0; for(const x of g) v+=(x-mean)**2;
+  return {g, std:Math.sqrt(v/g.length)};
+}
+function diff(a,b){ if(!a||!b) return 255; let s=0; for(let i=0;i<a.g.length;i++) s+=Math.abs(a.g[i]-b.g[i]); return s/a.g.length; }
+
+function tick(){
+  if(stream && auto && !busy && Date.now() > cooldownUntil){
+    const f = grab();
+    if(f){
+      const sens = +$('sens').value;               // 1..10
+      const motion = diff(f, prevFrame);
+      const changeNeed = 22 - sens*1.6;            // how different from last solved frame
+      if(motion < 4) { if(!stableSince) stableSince = Date.now(); } else stableSince = 0;
+      const stable = stableSince && Date.now()-stableSince > 900;
+      const changed = diff(f, solvedFrame) > changeNeed;
+      if(f.std < 12) setStatus('화면이 비어 있어요','watch');
+      else if(!stable) setStatus(motion>=4 ? '움직임 감지… 멈춰 주세요' : '문제 찾는 중','watch');
+      else if(changed) solve(false, f);
+      else setStatus('같은 문제 · 바꾸면 다시 풀어요','watch');
+      prevFrame = f;
+    }
+  }
+  setTimeout(tick, 350);
+}
+
+function capture(){
+  const w = video.videoWidth, h = video.videoHeight, scale = Math.min(1, 1568/Math.max(w,h));
+  big.width = Math.round(w*scale); big.height = Math.round(h*scale);
+  big.getContext('2d').drawImage(video, 0, 0, big.width, big.height);
+  return big.toDataURL('image/jpeg', 0.85).split(',')[1];
+}
+
+const PROMPT = `이미지에서 풀어야 할 문제(수학·과학·국어·영어 등)를 찾아 풀어 주세요.
+반드시 아래 JSON 하나만 출력하세요. 다른 글은 쓰지 마세요.
+{"found": true/false, "problem": "문제 요약(한 줄)", "answer": "최종 정답(짧게)", "explanation": "풀이 과정(한국어, 간결하게, 수식은 $...$)"}
+문제가 없거나 너무 흐려서 읽을 수 없으면 {"found": false, "problem": "", "answer": "", "explanation": "이유"} 를 출력하세요.
+여러 문제가 보이면 가장 크게/가운데 보이는 문제를 푸세요.`;
+
+async function solve(manual, frame){
+  if(!stream){ setStatus('먼저 카메라를 시작하세요','err'); return; }
+  const key = $('apiKey').value.trim(); if(!key){ setStatus('API 키를 입력하세요','err'); return; }
+  if(busy && !manual) return;
+  controller?.abort(); controller = new AbortController();
+  busy = true; setStatus('문제 푸는 중…','busy');
+  const f = frame || grab();
+  const img = capture();
+  try{
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', signal: controller.signal,
+      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01',
+               'anthropic-dangerous-direct-browser-access':'true'},
+      body: JSON.stringify({model:$('model').value, max_tokens:2000,
+        messages:[{role:'user', content:[
+          {type:'image', source:{type:'base64', media_type:'image/jpeg', data:img}},
+          {type:'text', text:PROMPT}]}]})
+    });
+    if(res.status===429){ cooldownUntil = Date.now()+15000; throw new Error('요청이 많아요. 15초 후 다시 시도합니다.'); }
+    if(res.status===401) throw new Error('API 키가 올바르지 않아요.');
+    if(!res.ok) throw new Error('서버 오류 ' + res.status);
+    const data = await res.json();
+    const text = (data.content||[]).map(c=>c.text||'').join('');
+    const m = text.match(/\{[\s\S]*\}/);
+    const out = m ? JSON.parse(m[0]) : {found:false, explanation:text};
+    solvedFrame = f;                      // don't re-solve this same view
+    if(out.found){
+      const same = out.problem && out.problem === lastProblem;
+      if(!same || manual){ showResult(out); lastProblem = out.problem; addHistory(out); }
+      setStatus('완료 · 다음 문제를 비추세요','watch');
+    }else{
+      showMsg('문제를 인식하지 못했어요. 각도·초점을 맞추고 [인식] 버튼을 눌러 주세요.' + (out.explanation ? '\n('+out.explanation+')' : ''));
+      setStatus('인식 실패 · 인식 버튼을 누르세요','err');
+    }
+  }catch(e){
+    if(e.name==='AbortError') return;
+    showMsg(e.message || '오류가 났어요. 다시 시도해 주세요.');
+    setStatus('오류','err');
+    cooldownUntil = Math.max(cooldownUntil, Date.now()+3000);
+  }finally{ busy = false; }
+}
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function math(el){ try{ renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }catch(e){} }
+function showResult(o){
+  const r = $('result');
+  r.innerHTML = `<div class="answer">${esc(o.answer)}</div><div class="problem">${esc(o.problem)}</div><div class="expl">${esc(o.explanation)}</div>`;
+  math(r);
+  try{ navigator.vibrate?.(60); }catch(e){}
+}
+function showMsg(t){ $('result').innerHTML = `<div class="msg">${esc(t)}</div>`; }
+function addHistory(o){
+  history.unshift(o); history.length = Math.min(history.length, 10);
+  const h = $('history');
+  h.innerHTML = history.map(x=>`<div><b>${esc(x.answer)}</b> · ${esc(x.problem)}</div>`).join('');
+  math(h);
+}
+
+$('startBtn').onclick = startCam;
+$('solveBtn').onclick = () => solve(true);
+$('toggleBtn').onclick = () => { auto = !auto; $('toggleBtn').textContent = auto ? '자동 ON' : '자동 OFF';
+  setStatus(auto ? '문제 찾는 중' : '자동 꺼짐 · 인식 버튼 사용', auto?'watch':''); };
+$('flipBtn').onclick = () => { facing = facing==='environment' ? 'user' : 'environment'; if(stream) startCam(); };
+tick();
+</script>
+</body>
+</html>
