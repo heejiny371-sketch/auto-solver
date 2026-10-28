@@ -86,19 +86,13 @@ textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;borde
       <div class="setup">
         <div><label for="apiKey">Anthropic API 키 (이 기기에만 저장)</label>
           <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></div>
-        <div><label for="model">모델</label>
-          <select id="model">
-            <option value="claude-opus-5-5">Claude Opus 5.5 (가장 정확·권장)</option>
-            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (빠름)</option>
-            <option value="claude-haiku-5-5">Claude Haiku 5.5 (가장 빠름)</option>
+        <div><label for="mode">속도 / 정확도</label>
+          <select id="mode">
+            <option value="turbo">초고속 (2~4초) · 쉬운 문제</option>
+            <option value="fast" selected>빠름 (3~5초) · 권장</option>
+            <option value="accurate">정확 (10~30초) · 어려운 문제</option>
           </select></div>
-        <div><label for="effort">생각 깊이</label>
-          <select id="effort">
-            <option value="medium">보통 (빠름)</option>
-            <option value="high" selected>깊게 (권장)</option>
-            <option value="max">최대 (어려운 문제, 느림)</option>
-          </select></div>
-        <label class="check"><input id="verify" type="checkbox" checked>
+        <label class="check"><input id="verify" type="checkbox">
           <span><b>검산 모드</b><br><span class="small">두 번 따로 풀어 답이 같으면 확정하고, 다르면 한 번 더 따져서 정해요. 정확하지만 요금이 약 2배예요.</span></span></label>
         <label class="check"><input id="crop" type="checkbox">
           <span><b>가운데 점선 영역만 인식</b><br><span class="small">여러 문제가 함께 보일 때 켜세요.</span></span></label>
@@ -107,7 +101,7 @@ textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;borde
           <input id="sens" type="range" min="1" max="10" value="5" style="flex:2">
         </div>
         <button class="setbtn" id="startBtn">카메라 시작</button>
-        <div class="small">문제를 비추고 1초쯤 가만히 있으면 자동으로 풀어요. 문제를 바꾸면 다시 인식합니다. 밝은 곳에서 문제를 화면에 꽉 차게 비출수록 정확해요.</div>
+        <div class="small">문제를 비추고 0.5초쯤 가만히 있으면 자동으로 풀어요. 문제를 바꾸면 다시 인식합니다. 밝은 곳에서 문제를 화면에 꽉 차게 비출수록 정확해요.</div>
       </div>
     </div>
 
@@ -127,13 +121,19 @@ const video = $('video'), small = $('small'), big = $('big');
 const sctx = small.getContext('2d', {willReadFrequently:true});
 let stream = null, facing = 'environment', auto = true;
 let prevFrame = null, solvedFrame = null, stableSince = 0;
-let busy = false, lastKey = '', controller = null, cooldownUntil = 0, lastImg = null;
+let t0 = 0, busy = false, lastKey = '', controller = null, cooldownUntil = 0, lastImg = null;
 const history = [];
 
-const PREFS = ['apiKey','model','effort','verify','crop','sens'];
-try{ PREFS.forEach(k=>{ const v=localStorage.getItem('as_'+k); if(v==null) return;
+const PREFS = ['apiKey','mode','verify','crop','sens'];
+const MODES = {
+  turbo:    {model:'claude-haiku-5-5',  effort:'low',  maxTok:1500, px:1092, frames:1, explain:'핵심만 1~2줄'},
+  fast:     {model:'claude-sonnet-5-5', effort:'low',  maxTok:3000, px:1092, frames:1, explain:'핵심만 2~4줄'},
+  accurate: {model:'claude-opus-5-5',   effort:'high', maxTok:16000, px:1568, frames:4, explain:'단계별로 간결하게'}
+};
+const M = () => MODES[$('mode').value] || MODES.fast;
+try{ PREFS.forEach(k=>{ const v=localStorage.getItem('as2_'+k) ?? (k==='apiKey' ? localStorage.getItem('as_apiKey') : null); if(v==null) return;
   const el=$(k); if(el.type==='checkbox') el.checked = v==='1'; else el.value=v; }); }catch(e){}
-function savePrefs(){ try{ PREFS.forEach(k=>{ const el=$(k); localStorage.setItem('as_'+k, el.type==='checkbox' ? (el.checked?'1':'0') : el.value); }); }catch(e){} }
+function savePrefs(){ try{ PREFS.forEach(k=>{ const el=$(k); localStorage.setItem('as2_'+k, el.type==='checkbox' ? (el.checked?'1':'0') : el.value); }); }catch(e){} }
 PREFS.forEach(k=>$(k).addEventListener('change', ()=>{ savePrefs(); if(k==='crop') $('guide').hidden = !$('crop').checked; }));
 $('guide').hidden = !$('crop').checked;
 
@@ -173,7 +173,7 @@ function tick(){
       const sens = +$('sens').value;
       const motion = diff(f, prevFrame);
       if(motion < 4){ if(!stableSince) stableSince = Date.now(); } else stableSince = 0;
-      const stable = stableSince && Date.now()-stableSince > 900;
+      const stable = stableSince && Date.now()-stableSince > 450;
       const changed = diff(f, solvedFrame) > 22 - sens*1.6;
       if(f.std < 12) setStatus('화면이 비어 있어요','watch');
       else if(!stable) setStatus(motion>=4 ? '움직임 감지… 멈춰 주세요' : '문제 찾는 중','watch');
@@ -182,7 +182,7 @@ function tick(){
       prevFrame = f;
     }
   }
-  setTimeout(tick, 350);
+  setTimeout(tick, 150);
 }
 
 // ---------- capture: pick the sharpest of several frames ----------
@@ -205,59 +205,79 @@ function sharpness(canvas){
 }
 function frameCanvas(){
   const [sx,sy,sw,sh] = cropRect();
-  const scale = Math.min(1, 1568/Math.max(sw,sh));
+  const scale = Math.min(1, M().px/Math.max(sw,sh));
   const c = document.createElement('canvas'); c.width=Math.round(sw*scale); c.height=Math.round(sh*scale);
   const x = c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(video,sx,sy,sw,sh,0,0,c.width,c.height);
   return c;
 }
 async function captureBest(){
+  const n = M().frames;
+  if(n===1) return frameCanvas().toDataURL('image/jpeg', 0.88).split(',')[1];
   let best=null, bestS=-1;
-  for(let i=0;i<4;i++){
+  for(let i=0;i<n;i++){
     const c = frameCanvas(), s = sharpness(c);
     if(s>bestS){ best=c; bestS=s; }
-    if(i<3) await new Promise(r=>setTimeout(r,120));
+    if(i<n-1) await new Promise(r=>setTimeout(r,120));
   }
   return best.toDataURL('image/jpeg', 0.93).split(',')[1];
 }
 
 // ---------- Claude ----------
-const SYS = `당신은 꼼꼼한 문제 풀이 선생님입니다. 정확성이 최우선입니다.
-절차:
-1) 먼저 이미지 속 문제를 한 글자도 빠짐없이 그대로 옮겨 적으세요(숫자·부호·지수·분수·단위·보기 번호를 특히 주의). 흐리거나 애매한 글자는 문맥으로 판단하되 transcription에 [?]로 표시하세요.
-2) 그 문제를 단계별로 정확히 푸세요.
-3) 답을 다른 방법(대입, 역산, 단위 확인, 보기와 대조 등)으로 반드시 검산하세요. 틀리면 다시 푸세요.
-4) 객관식이면 정답 보기 번호와 내용을 함께 쓰세요.
-여러 문제가 보이면 가장 크게 또는 가운데에 있는 문제 하나만 푸세요.
-마지막에 아래 JSON 하나만 출력하세요(코드블록 없이):
-{"found": true/false, "transcription": "문제 원문", "answer": "최종 정답(짧게)", "explanation": "풀이 과정(한국어, 간결, 수식은 $...$)", "check": "검산 내용 한 줄", "confidence": "high/medium/low"}
-문제가 없거나 읽을 수 없으면 found를 false로 하고 explanation에 이유를 쓰세요.`;
+function SYS(){ const m=M(); return `당신은 정확하고 빠른 문제 풀이 선생님입니다.
+이미지 속 문제(숫자·부호·지수·분수·단위·보기 번호를 정확히 읽을 것)를 풀고, 속으로 한 번 검산한 뒤 답하세요.
+객관식이면 정답 보기 번호와 내용을 함께 쓰세요. 여러 문제가 보이면 가장 크게 또는 가운데에 있는 문제 하나만 푸세요.
+아래 JSON 하나만 출력하세요(코드블록·다른 글 없이). 반드시 answer를 맨 먼저 쓰세요:
+{"found": true/false, "answer": "최종 정답(짧게)", "explanation": "풀이(한국어, ${m.explain}, 수식은 $...$)", "transcription": "문제 원문(짧게)", "confidence": "high/medium/low"}
+문제가 없거나 읽을 수 없으면 {"found": false, "explanation": "이유"}만 출력하세요.`; }
 
-async function callClaude(content, signal){
-  const key = $('apiKey').value.trim();
-  const body = {model:$('model').value, max_tokens:16000, system:SYS,
-    thinking:{type:'adaptive'}, output_config:{effort:$('effort').value},
+function parseOut(text){
+  const all = [...text.matchAll(/\{[\s\S]*\}/g)];
+  try{ return JSON.parse(all.length ? all[all.length-1][0] : ''); }
+  catch(e){ const i = text.lastIndexOf('{"found"'); if(i>=0){ try{ return JSON.parse(text.slice(i)); }catch(_){} }
+    const a = text.match(/"answer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    return a ? {found:true, answer:JSON.parse('"'+a[1]+'"'), explanation:''} : {found:false, explanation:'응답을 해석하지 못했어요.'}; }
+}
+
+async function post(body, signal){
+  return fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,body:JSON.stringify(body),
+    headers:{'content-type':'application/json','x-api-key':$('apiKey').value.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}});
+}
+
+// streams the reply; onPartial gets the answer as soon as it appears
+async function callClaude(content, signal, onPartial){
+  const m = M();
+  const body = {model:m.model, max_tokens:m.maxTok, stream:true,
+    system:[{type:'text', text:SYS(), cache_control:{type:'ephemeral'}}],
+    thinking:{type:'adaptive'}, output_config:{effort:m.effort},
     messages:[{role:'user', content}]};
-  const headers = {'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
-  let res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers,body:JSON.stringify(body)});
-  if(res.status===400){ // model may not accept thinking/effort settings: retry plain
-    delete body.thinking; delete body.output_config; body.max_tokens = 4000;
-    res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers,body:JSON.stringify(body)});
-  }
+  let res = await post(body, signal);
+  if(res.status===400){ delete body.thinking; delete body.output_config; res = await post(body, signal); }
   if(res.status===429){ cooldownUntil = Date.now()+15000; throw new Error('요청이 많아요. 15초 후 다시 시도합니다.'); }
   if(res.status===401) throw new Error('API 키가 올바르지 않아요.');
   if(res.status===529) throw new Error('서버가 바빠요. 잠시 후 다시 시도해 주세요.');
   if(!res.ok) throw new Error('서버 오류 ' + res.status);
-  const data = await res.json();
-  const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
-  const all = [...text.matchAll(/\{[\s\S]*\}/g)];
-  try{ return JSON.parse(all.length ? all[all.length-1][0] : ''); }
-  catch(e){ const m = text.lastIndexOf('{"found"'); if(m>=0){ try{ return JSON.parse(text.slice(m)); }catch(_){} }
-    return {found:false, explanation:'응답을 해석하지 못했어요.'}; }
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = '', text = '', shown = '';
+  for(;;){
+    const {done, value} = await reader.read(); if(done) break;
+    buf += dec.decode(value, {stream:true});
+    let i; while((i = buf.indexOf('\n')) >= 0){
+      const line = buf.slice(0,i).trim(); buf = buf.slice(i+1);
+      if(!line.startsWith('data:')) continue;
+      let ev; try{ ev = JSON.parse(line.slice(5)); }catch(e){ continue; }
+      if(ev.type==='content_block_delta' && ev.delta?.type==='text_delta'){
+        text += ev.delta.text;
+        if(onPartial){ const a = text.match(/"answer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          if(a && a[1]!==shown){ shown=a[1]; try{ onPartial(JSON.parse('"'+a[1]+'"')); }catch(e){} } }
+      } else if(ev.type==='error') throw new Error(ev.error?.message || '스트림 오류');
+    }
+  }
+  return parseOut(text);
 }
 const norm = s => (s||'').toLowerCase().replace(/\$|\\[a-z]+|[\s.,()（）{}]/g,'').replace(/^(정답|답|answer)[:：=]?/,'');
 
 async function solveContent(content, signal){
-  if(!$('verify').checked) return await callClaude(content, signal);
+  if(!$('verify').checked) return await callClaude(content, signal, showPartial);
   setStatus('두 번 풀어서 비교 중…','busy');
   const [a,b] = await Promise.all([callClaude(content, signal), callClaude(content, signal)]);
   if(!a.found && !b.found) return a;
@@ -276,7 +296,7 @@ async function solveFromCamera(manual, frame){
   if(!$('apiKey').value.trim()){ setStatus('API 키를 입력하세요','err'); return; }
   if(busy && !manual) return;
   const f = frame || grab();
-  setStatus('선명한 장면 고르는 중…','busy'); busy = true;
+  busy = true; if(M().frames>1) setStatus('선명한 장면 고르는 중…','busy');
   const img = await captureBest(); lastImg = img;
   await run([{type:'image', source:{type:'base64', media_type:'image/jpeg', data:img}}, {type:'text', text:'이 사진 속 문제를 풀어 주세요.'}], f, manual);
 }
@@ -291,14 +311,14 @@ async function solveFromText(t){
 
 async function run(content, f, manual){
   controller?.abort(); controller = new AbortController();
-  busy = true; setStatus('문제 푸는 중… (깊게 생각하는 중)','busy');
+  busy = true; setStatus('문제 푸는 중…','busy'); t0 = performance.now();
   try{
     const out = await solveContent(content, controller.signal);
     if(f) solvedFrame = f;
     if(out.found){
       const key = norm(out.transcription).slice(0,80);
       if(key !== lastKey || manual){ showResult(out); lastKey = key; addHistory(out); }
-      setStatus('완료 · 다음 문제를 비추세요','watch');
+      setStatus(`완료 ${((performance.now()-t0)/1000).toFixed(1)}초 · 다음 문제를 비추세요`,'watch');
     }else{
       showMsg('문제를 인식하지 못했어요. 더 가까이, 밝게 비추고 [인식] 버튼을 눌러 주세요.' + (out.explanation ? '\n(' + out.explanation + ')' : ''));
       setStatus('인식 실패 · 인식 버튼을 누르세요','err');
@@ -332,6 +352,7 @@ function showResult(o){
   $('fixBtn').onclick = () => solveFromText($('fixText').value);
   try{ navigator.vibrate?.(60); }catch(e){}
 }
+function showPartial(a){ $('result').innerHTML = `<div class="answer">${esc(a)}</div><div class="small">풀이 받는 중…</div>`; try{ math($('result').querySelector('.answer')); }catch(e){} }
 function showMsg(t){ $('result').innerHTML = `<div class="msg">${esc(t)}</div>`; }
 function addHistory(o){
   history.unshift(o); history.length = Math.min(history.length, 10);
