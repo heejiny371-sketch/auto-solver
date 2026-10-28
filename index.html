@@ -18,7 +18,7 @@
   --bg:#0f151b; --panel:#17202a; --fg:#e7edf2; --muted:#93a1ad; --line:#2a3642;
   --accent:#4ea3ff; --ok:#3fbf7f; --warn:#e0a03a; --bad:#ef6b5e; color-scheme:dark;}}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%}
+html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);
   padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
 .wrap{max-width:900px;margin:0 auto;display:grid;gap:12px;padding-block:12px}
@@ -26,9 +26,10 @@ body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);
 .cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4;max-height:70vh}
 @media(min-width:820px){.cam{aspect-ratio:4/3}}
 video{width:100%;height:100%;object-fit:cover;display:block}
-.status{position:absolute;left:10px;top:10px;padding:5px 10px;border-radius:999px;font-size:13px;font-weight:600;
-  background:rgba(0,0,0,.6);color:#fff;display:flex;gap:6px;align-items:center}
-.dot{width:8px;height:8px;border-radius:50%;background:#9aa}
+.guide{position:absolute;left:8%;right:8%;top:18%;bottom:24%;border:2px dashed rgba(255,255,255,.75);border-radius:10px;pointer-events:none}
+.status{position:absolute;left:10px;top:10px;right:10px;padding:5px 10px;border-radius:999px;font-size:13px;font-weight:600;
+  background:rgba(0,0,0,.6);color:#fff;display:flex;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 20px)}
+.dot{width:8px;height:8px;border-radius:50%;background:#9aa;flex:none}
 .dot.watch{background:#4ade80}.dot.busy{background:#fbbf24;animation:p 1s infinite}.dot.err{background:#f87171}
 @keyframes p{50%{opacity:.3}}
 .bar{position:absolute;left:0;right:0;bottom:0;padding:12px;display:flex;gap:8px;justify-content:center;
@@ -38,26 +39,34 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .primary{background:var(--accent);color:#fff;flex:1;max-width:260px;font-size:16px}
 .ghost{background:rgba(255,255,255,.18);color:#fff}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
-.panel h2{margin:0 0 6px;font-size:13px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
-.answer{font-size:22px;font-weight:700;color:var(--ok);margin:4px 0 10px;overflow-wrap:anywhere}
-.problem{color:var(--muted);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:10px}
+.panel h2{margin:0 0 6px;font-size:13px;letter-spacing:.06em;color:var(--muted)}
+.answer{font-size:22px;font-weight:700;color:var(--ok);margin:4px 0 6px;overflow-wrap:anywhere}
+.badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;margin-bottom:8px}
+.badge.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.badge.warn{background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn)}
 .expl{white-space:pre-wrap;overflow-wrap:anywhere}
-.msg{color:var(--warn);font-weight:600}
+.msg{color:var(--warn);font-weight:600;white-space:pre-wrap}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:600}
+textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);margin-top:6px}
+.resolve{background:var(--accent);color:#fff;margin-top:6px;padding:10px 14px}
 .history{display:grid;gap:8px;margin-top:8px}
 .history div{font-size:13px;border-top:1px solid var(--line);padding-top:8px;overflow-wrap:anywhere}
 .setup{display:grid;gap:10px}
-.setup input,.setup select{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:100%}
+.setup input[type=password],.setup select{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:100%}
 .setup label{font-size:13px;color:var(--muted)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.check input{margin-top:4px}
 .small{font-size:12px;color:var(--muted)}
 .setbtn{background:var(--accent);color:#fff}
-.katex{font-size:1.05em}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="cam">
     <video id="video" playsinline muted autoplay></video>
+    <div class="guide" id="guide" hidden></div>
     <div class="status"><span class="dot" id="dot"></span><span id="statusText">대기 중</span></div>
     <div class="bar">
       <button class="ghost" id="toggleBtn">자동 ON</button>
@@ -67,6 +76,11 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
   </div>
 
   <div style="display:grid;gap:12px;min-width:0">
+    <div class="panel">
+      <h2>정답</h2>
+      <div id="result"><div class="small">아직 인식한 문제가 없어요.</div></div>
+    </div>
+
     <div class="panel" id="setupPanel">
       <h2>설정</h2>
       <div class="setup">
@@ -74,22 +88,27 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
           <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></div>
         <div><label for="model">모델</label>
           <select id="model">
-            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (빠름·권장)</option>
-            <option value="claude-opus-5-5">Claude Opus 5.5 (어려운 문제)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5 (가장 정확·권장)</option>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (빠름)</option>
             <option value="claude-haiku-5-5">Claude Haiku 5.5 (가장 빠름)</option>
           </select></div>
+        <div><label for="effort">생각 깊이</label>
+          <select id="effort">
+            <option value="medium">보통 (빠름)</option>
+            <option value="high" selected>깊게 (권장)</option>
+            <option value="max">최대 (어려운 문제, 느림)</option>
+          </select></div>
+        <label class="check"><input id="verify" type="checkbox" checked>
+          <span><b>검산 모드</b><br><span class="small">두 번 따로 풀어 답이 같으면 확정하고, 다르면 한 번 더 따져서 정해요. 정확하지만 요금이 약 2배예요.</span></span></label>
+        <label class="check"><input id="crop" type="checkbox">
+          <span><b>가운데 점선 영역만 인식</b><br><span class="small">여러 문제가 함께 보일 때 켜세요.</span></span></label>
         <div class="row">
           <label for="sens" style="flex:1">변화 감지 민감도</label>
           <input id="sens" type="range" min="1" max="10" value="5" style="flex:2">
         </div>
         <button class="setbtn" id="startBtn">카메라 시작</button>
-        <div class="small">문제를 비추고 1초쯤 가만히 있으면 자동으로 풀어요. 문제를 바꾸면 다시 인식합니다.</div>
+        <div class="small">문제를 비추고 1초쯤 가만히 있으면 자동으로 풀어요. 문제를 바꾸면 다시 인식합니다. 밝은 곳에서 문제를 화면에 꽉 차게 비출수록 정확해요.</div>
       </div>
-    </div>
-
-    <div class="panel">
-      <h2>정답</h2>
-      <div id="result"><div class="small">아직 인식한 문제가 없어요.</div></div>
     </div>
 
     <div class="panel">
@@ -108,37 +127,41 @@ const video = $('video'), small = $('small'), big = $('big');
 const sctx = small.getContext('2d', {willReadFrequently:true});
 let stream = null, facing = 'environment', auto = true;
 let prevFrame = null, solvedFrame = null, stableSince = 0;
-let busy = false, lastProblem = '', controller = null, cooldownUntil = 0;
+let busy = false, lastKey = '', controller = null, cooldownUntil = 0, lastImg = null;
 const history = [];
 
-try { $('apiKey').value = localStorage.getItem('as_key') || '';
-      $('model').value = localStorage.getItem('as_model') || 'claude-sonnet-5-5'; } catch(e){}
+const PREFS = ['apiKey','model','effort','verify','crop','sens'];
+try{ PREFS.forEach(k=>{ const v=localStorage.getItem('as_'+k); if(v==null) return;
+  const el=$(k); if(el.type==='checkbox') el.checked = v==='1'; else el.value=v; }); }catch(e){}
+function savePrefs(){ try{ PREFS.forEach(k=>{ const el=$(k); localStorage.setItem('as_'+k, el.type==='checkbox' ? (el.checked?'1':'0') : el.value); }); }catch(e){} }
+PREFS.forEach(k=>$(k).addEventListener('change', ()=>{ savePrefs(); if(k==='crop') $('guide').hidden = !$('crop').checked; }));
+$('guide').hidden = !$('crop').checked;
 
 function setStatus(text, kind){ $('statusText').textContent = text; $('dot').className = 'dot ' + (kind||''); }
 
 async function startCam(){
-  const key = $('apiKey').value.trim();
-  if(!key){ setStatus('API 키를 입력하세요','err'); return; }
-  try { localStorage.setItem('as_key', key); localStorage.setItem('as_model', $('model').value); } catch(e){}
+  if(!$('apiKey').value.trim()){ setStatus('API 키를 입력하세요','err'); return; }
+  savePrefs();
   if(stream) stream.getTracks().forEach(t=>t.stop());
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1920}, height:{ideal:1440}}, audio:false});
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:2560}, height:{ideal:1920}}, audio:false});
     video.srcObject = stream; await video.play();
-    $('setupPanel').querySelector('.setbtn').textContent = '설정 저장 / 카메라 재시작';
+    // try continuous autofocus where supported
+    try{ const tr = stream.getVideoTracks()[0]; const cap = tr.getCapabilities?.();
+      if(cap?.focusMode?.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+    $('startBtn').textContent = '설정 저장 / 카메라 재시작';
     setStatus(auto ? '문제 찾는 중' : '자동 꺼짐', 'watch');
-    try { await navigator.wakeLock?.request('screen'); } catch(e){}
-  }catch(e){
-    setStatus('카메라 권한이 필요해요 (https 또는 localhost)','err');
-  }
+    try{ await navigator.wakeLock?.request('screen'); }catch(e){}
+  }catch(e){ setStatus('카메라 권한이 필요해요','err'); }
 }
 
-// Downscaled grayscale frame for change detection
+// ---------- change detection ----------
 function grab(){
   if(!video.videoWidth) return null;
   sctx.drawImage(video, 0, 0, 48, 36);
   const d = sctx.getImageData(0,0,48,36).data, g = new Float32Array(48*36);
   let sum=0; for(let i=0;i<g.length;i++){ g[i]=(d[i*4]*.3+d[i*4+1]*.59+d[i*4+2]*.11); sum+=g[i]; }
-  const mean = sum/g.length; let v=0; for(const x of g) v+=(x-mean)**2;
+  const mean=sum/g.length; let v=0; for(const x of g) v+=(x-mean)**2;
   return {g, std:Math.sqrt(v/g.length)};
 }
 function diff(a,b){ if(!a||!b) return 255; let s=0; for(let i=0;i<a.g.length;i++) s+=Math.abs(a.g[i]-b.g[i]); return s/a.g.length; }
@@ -147,15 +170,14 @@ function tick(){
   if(stream && auto && !busy && Date.now() > cooldownUntil){
     const f = grab();
     if(f){
-      const sens = +$('sens').value;               // 1..10
+      const sens = +$('sens').value;
       const motion = diff(f, prevFrame);
-      const changeNeed = 22 - sens*1.6;            // how different from last solved frame
-      if(motion < 4) { if(!stableSince) stableSince = Date.now(); } else stableSince = 0;
+      if(motion < 4){ if(!stableSince) stableSince = Date.now(); } else stableSince = 0;
       const stable = stableSince && Date.now()-stableSince > 900;
-      const changed = diff(f, solvedFrame) > changeNeed;
+      const changed = diff(f, solvedFrame) > 22 - sens*1.6;
       if(f.std < 12) setStatus('화면이 비어 있어요','watch');
       else if(!stable) setStatus(motion>=4 ? '움직임 감지… 멈춰 주세요' : '문제 찾는 중','watch');
-      else if(changed) solve(false, f);
+      else if(changed) solveFromCamera(false, f);
       else setStatus('같은 문제 · 바꾸면 다시 풀어요','watch');
       prevFrame = f;
     }
@@ -163,79 +185,163 @@ function tick(){
   setTimeout(tick, 350);
 }
 
-function capture(){
-  const w = video.videoWidth, h = video.videoHeight, scale = Math.min(1, 1568/Math.max(w,h));
-  big.width = Math.round(w*scale); big.height = Math.round(h*scale);
-  big.getContext('2d').drawImage(video, 0, 0, big.width, big.height);
-  return big.toDataURL('image/jpeg', 0.85).split(',')[1];
+// ---------- capture: pick the sharpest of several frames ----------
+function cropRect(){
+  const w = video.videoWidth, h = video.videoHeight;
+  if(!$('crop').checked) return [0,0,w,h];
+  // guide box is drawn over an object-fit:cover video; map it back to source pixels
+  const vb = video.getBoundingClientRect(), gb = $('guide').getBoundingClientRect();
+  const s = Math.max(vb.width/w, vb.height/h), ox = (w*s - vb.width)/2, oy = (h*s - vb.height)/2;
+  const x = (gb.left - vb.left + ox)/s, y = (gb.top - vb.top + oy)/s;
+  return [Math.max(0,x), Math.max(0,y), Math.min(w, gb.width/s), Math.min(h, gb.height/s)];
+}
+function sharpness(canvas){
+  const W=320, H=Math.round(canvas.height*W/canvas.width), c=document.createElement('canvas'); c.width=W; c.height=H;
+  const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(canvas,0,0,W,H);
+  const d=x.getImageData(0,0,W,H).data, g=new Float32Array(W*H);
+  for(let i=0;i<g.length;i++) g[i]=d[i*4]*.3+d[i*4+1]*.59+d[i*4+2]*.11;
+  let s=0,n=0; for(let y=1;y<H-1;y++) for(let i=y*W+1;i<y*W+W-1;i++){ const l=4*g[i]-g[i-1]-g[i+1]-g[i-W]-g[i+W]; s+=l*l; n++; }
+  return s/n;
+}
+function frameCanvas(){
+  const [sx,sy,sw,sh] = cropRect();
+  const scale = Math.min(1, 1568/Math.max(sw,sh));
+  const c = document.createElement('canvas'); c.width=Math.round(sw*scale); c.height=Math.round(sh*scale);
+  const x = c.getContext('2d'); x.imageSmoothingQuality='high'; x.drawImage(video,sx,sy,sw,sh,0,0,c.width,c.height);
+  return c;
+}
+async function captureBest(){
+  let best=null, bestS=-1;
+  for(let i=0;i<4;i++){
+    const c = frameCanvas(), s = sharpness(c);
+    if(s>bestS){ best=c; bestS=s; }
+    if(i<3) await new Promise(r=>setTimeout(r,120));
+  }
+  return best.toDataURL('image/jpeg', 0.93).split(',')[1];
 }
 
-const PROMPT = `이미지에서 풀어야 할 문제(수학·과학·국어·영어 등)를 찾아 풀어 주세요.
-반드시 아래 JSON 하나만 출력하세요. 다른 글은 쓰지 마세요.
-{"found": true/false, "problem": "문제 요약(한 줄)", "answer": "최종 정답(짧게)", "explanation": "풀이 과정(한국어, 간결하게, 수식은 $...$)"}
-문제가 없거나 너무 흐려서 읽을 수 없으면 {"found": false, "problem": "", "answer": "", "explanation": "이유"} 를 출력하세요.
-여러 문제가 보이면 가장 크게/가운데 보이는 문제를 푸세요.`;
+// ---------- Claude ----------
+const SYS = `당신은 꼼꼼한 문제 풀이 선생님입니다. 정확성이 최우선입니다.
+절차:
+1) 먼저 이미지 속 문제를 한 글자도 빠짐없이 그대로 옮겨 적으세요(숫자·부호·지수·분수·단위·보기 번호를 특히 주의). 흐리거나 애매한 글자는 문맥으로 판단하되 transcription에 [?]로 표시하세요.
+2) 그 문제를 단계별로 정확히 푸세요.
+3) 답을 다른 방법(대입, 역산, 단위 확인, 보기와 대조 등)으로 반드시 검산하세요. 틀리면 다시 푸세요.
+4) 객관식이면 정답 보기 번호와 내용을 함께 쓰세요.
+여러 문제가 보이면 가장 크게 또는 가운데에 있는 문제 하나만 푸세요.
+마지막에 아래 JSON 하나만 출력하세요(코드블록 없이):
+{"found": true/false, "transcription": "문제 원문", "answer": "최종 정답(짧게)", "explanation": "풀이 과정(한국어, 간결, 수식은 $...$)", "check": "검산 내용 한 줄", "confidence": "high/medium/low"}
+문제가 없거나 읽을 수 없으면 found를 false로 하고 explanation에 이유를 쓰세요.`;
 
-async function solve(manual, frame){
+async function callClaude(content, signal){
+  const key = $('apiKey').value.trim();
+  const body = {model:$('model').value, max_tokens:16000, system:SYS,
+    thinking:{type:'adaptive'}, output_config:{effort:$('effort').value},
+    messages:[{role:'user', content}]};
+  const headers = {'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
+  let res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers,body:JSON.stringify(body)});
+  if(res.status===400){ // model may not accept thinking/effort settings: retry plain
+    delete body.thinking; delete body.output_config; body.max_tokens = 4000;
+    res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers,body:JSON.stringify(body)});
+  }
+  if(res.status===429){ cooldownUntil = Date.now()+15000; throw new Error('요청이 많아요. 15초 후 다시 시도합니다.'); }
+  if(res.status===401) throw new Error('API 키가 올바르지 않아요.');
+  if(res.status===529) throw new Error('서버가 바빠요. 잠시 후 다시 시도해 주세요.');
+  if(!res.ok) throw new Error('서버 오류 ' + res.status);
+  const data = await res.json();
+  const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+  const all = [...text.matchAll(/\{[\s\S]*\}/g)];
+  try{ return JSON.parse(all.length ? all[all.length-1][0] : ''); }
+  catch(e){ const m = text.lastIndexOf('{"found"'); if(m>=0){ try{ return JSON.parse(text.slice(m)); }catch(_){} }
+    return {found:false, explanation:'응답을 해석하지 못했어요.'}; }
+}
+const norm = s => (s||'').toLowerCase().replace(/\$|\\[a-z]+|[\s.,()（）{}]/g,'').replace(/^(정답|답|answer)[:：=]?/,'');
+
+async function solveContent(content, signal){
+  if(!$('verify').checked) return await callClaude(content, signal);
+  setStatus('두 번 풀어서 비교 중…','busy');
+  const [a,b] = await Promise.all([callClaude(content, signal), callClaude(content, signal)]);
+  if(!a.found && !b.found) return a;
+  if(a.found && b.found && norm(a.answer)===norm(b.answer)){ a.verified='match'; return a; }
+  if(!a.found || !b.found){ const r = a.found ? a : b; r.verified='single'; return r; }
+  setStatus('답이 달라서 다시 따지는 중…','busy');
+  const judge = [...content, {type:'text', text:
+    `다른 두 풀이가 서로 다른 답을 냈습니다. 문제를 처음부터 직접 다시 풀고, 두 풀이 중 어디가 틀렸는지 찾아 최종 정답을 정하세요.\n[풀이 A] 답: ${a.answer}\n${a.explanation}\n\n[풀이 B] 답: ${b.answer}\n${b.explanation}`}];
+  const c = await callClaude(judge, signal);
+  c.verified = 'judged'; c.alt = [a.answer, b.answer];
+  return c;
+}
+
+async function solveFromCamera(manual, frame){
   if(!stream){ setStatus('먼저 카메라를 시작하세요','err'); return; }
-  const key = $('apiKey').value.trim(); if(!key){ setStatus('API 키를 입력하세요','err'); return; }
+  if(!$('apiKey').value.trim()){ setStatus('API 키를 입력하세요','err'); return; }
   if(busy && !manual) return;
-  controller?.abort(); controller = new AbortController();
-  busy = true; setStatus('문제 푸는 중…','busy');
   const f = frame || grab();
-  const img = capture();
+  setStatus('선명한 장면 고르는 중…','busy'); busy = true;
+  const img = await captureBest(); lastImg = img;
+  await run([{type:'image', source:{type:'base64', media_type:'image/jpeg', data:img}}, {type:'text', text:'이 사진 속 문제를 풀어 주세요.'}], f, manual);
+}
+
+async function solveFromText(t){
+  if(!t.trim()) return;
+  const content = [];
+  if(lastImg) content.push({type:'image', source:{type:'base64', media_type:'image/jpeg', data:lastImg}});
+  content.push({type:'text', text:`사진에서 읽은 문제를 사용자가 직접 고쳤습니다. 아래 텍스트가 정확한 문제입니다(그림·표는 사진 참고):\n${t}`});
+  await run(content, null, true);
+}
+
+async function run(content, f, manual){
+  controller?.abort(); controller = new AbortController();
+  busy = true; setStatus('문제 푸는 중… (깊게 생각하는 중)','busy');
   try{
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST', signal: controller.signal,
-      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01',
-               'anthropic-dangerous-direct-browser-access':'true'},
-      body: JSON.stringify({model:$('model').value, max_tokens:2000,
-        messages:[{role:'user', content:[
-          {type:'image', source:{type:'base64', media_type:'image/jpeg', data:img}},
-          {type:'text', text:PROMPT}]}]})
-    });
-    if(res.status===429){ cooldownUntil = Date.now()+15000; throw new Error('요청이 많아요. 15초 후 다시 시도합니다.'); }
-    if(res.status===401) throw new Error('API 키가 올바르지 않아요.');
-    if(!res.ok) throw new Error('서버 오류 ' + res.status);
-    const data = await res.json();
-    const text = (data.content||[]).map(c=>c.text||'').join('');
-    const m = text.match(/\{[\s\S]*\}/);
-    const out = m ? JSON.parse(m[0]) : {found:false, explanation:text};
-    solvedFrame = f;                      // don't re-solve this same view
+    const out = await solveContent(content, controller.signal);
+    if(f) solvedFrame = f;
     if(out.found){
-      const same = out.problem && out.problem === lastProblem;
-      if(!same || manual){ showResult(out); lastProblem = out.problem; addHistory(out); }
+      const key = norm(out.transcription).slice(0,80);
+      if(key !== lastKey || manual){ showResult(out); lastKey = key; addHistory(out); }
       setStatus('완료 · 다음 문제를 비추세요','watch');
     }else{
-      showMsg('문제를 인식하지 못했어요. 각도·초점을 맞추고 [인식] 버튼을 눌러 주세요.' + (out.explanation ? '\n('+out.explanation+')' : ''));
+      showMsg('문제를 인식하지 못했어요. 더 가까이, 밝게 비추고 [인식] 버튼을 눌러 주세요.' + (out.explanation ? '\n(' + out.explanation + ')' : ''));
       setStatus('인식 실패 · 인식 버튼을 누르세요','err');
     }
   }catch(e){
     if(e.name==='AbortError') return;
-    showMsg(e.message || '오류가 났어요. 다시 시도해 주세요.');
-    setStatus('오류','err');
+    showMsg(e.message || '오류가 났어요. 다시 시도해 주세요.'); setStatus('오류','err');
     cooldownUntil = Math.max(cooldownUntil, Date.now()+3000);
   }finally{ busy = false; }
 }
 
+// ---------- UI ----------
 function esc(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 function math(el){ try{ renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false}); }catch(e){} }
+function badge(o){
+  if(o.verified==='match') return '<span class="badge ok">✓ 두 번 풀어 같은 답</span>';
+  if(o.verified==='judged') return `<span class="badge warn">재검토로 결정 (처음 답: ${esc(o.alt.join(' / '))})</span>`;
+  if(o.confidence==='low') return '<span class="badge warn">확신 낮음 · 문제 원문을 확인하세요</span>';
+  if(o.confidence==='high') return '<span class="badge ok">확신 높음</span>';
+  return '';
+}
 function showResult(o){
   const r = $('result');
-  r.innerHTML = `<div class="answer">${esc(o.answer)}</div><div class="problem">${esc(o.problem)}</div><div class="expl">${esc(o.explanation)}</div>`;
-  math(r);
+  r.innerHTML = `<div class="answer">${esc(o.answer)}</div>${badge(o)}
+    <div class="expl">${esc(o.explanation)}</div>
+    ${o.check ? `<div class="small" style="margin-top:6px">검산: ${esc(o.check)}</div>` : ''}
+    <details ${o.confidence==='low' ? 'open' : ''}><summary>읽은 문제 확인 · 잘못 읽었으면 고쳐서 다시 풀기</summary>
+      <textarea id="fixText">${esc(o.transcription)}</textarea>
+      <button class="resolve" id="fixBtn">이 내용으로 다시 풀기</button></details>`;
+  math(r.querySelector('.answer')); math(r.querySelector('.expl'));
+  $('fixBtn').onclick = () => solveFromText($('fixText').value);
   try{ navigator.vibrate?.(60); }catch(e){}
 }
 function showMsg(t){ $('result').innerHTML = `<div class="msg">${esc(t)}</div>`; }
 function addHistory(o){
   history.unshift(o); history.length = Math.min(history.length, 10);
   const h = $('history');
-  h.innerHTML = history.map(x=>`<div><b>${esc(x.answer)}</b> · ${esc(x.problem)}</div>`).join('');
+  h.innerHTML = history.map(x=>`<div><b>${esc(x.answer)}</b> · ${esc((x.transcription||'').slice(0,60))}</div>`).join('');
   math(h);
 }
 
 $('startBtn').onclick = startCam;
-$('solveBtn').onclick = () => solve(true);
+$('solveBtn').onclick = () => solveFromCamera(true);
 $('toggleBtn').onclick = () => { auto = !auto; $('toggleBtn').textContent = auto ? '자동 ON' : '자동 OFF';
   setStatus(auto ? '문제 찾는 중' : '자동 꺼짐 · 인식 버튼 사용', auto?'watch':''); };
 $('flipBtn').onclick = () => { facing = facing==='environment' ? 'user' : 'environment'; if(stream) startCam(); };
