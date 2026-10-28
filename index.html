@@ -25,7 +25,7 @@ body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--font);
 @media(min-width:820px){.wrap{grid-template-columns:1fr 1fr;align-items:start}}
 .cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4;max-height:70vh}
 @media(min-width:820px){.cam{aspect-ratio:4/3}}
-video{width:100%;height:100%;object-fit:cover;display:block}
+video{width:100%;height:100%;object-fit:cover;display:block;transform-origin:center}
 .guide{position:absolute;left:8%;right:8%;top:18%;bottom:24%;border:2px dashed rgba(255,255,255,.75);border-radius:10px;pointer-events:none}
 .status{position:absolute;left:10px;top:10px;right:10px;padding:5px 10px;border-radius:999px;font-size:13px;font-weight:600;
   background:rgba(0,0,0,.6);color:#fff;display:flex;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 20px)}
@@ -71,6 +71,7 @@ textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;borde
     <div class="bar">
       <button class="ghost" id="toggleBtn">자동 ON</button>
       <button class="primary" id="solveBtn">인식</button>
+      <button class="ghost" id="lensBtn">1x</button>
       <button class="ghost" id="flipBtn">전환</button>
     </div>
   </div>
@@ -120,6 +121,7 @@ const $ = id => document.getElementById(id);
 const video = $('video'), small = $('small'), big = $('big');
 const sctx = small.getContext('2d', {willReadFrequently:true});
 let stream = null, facing = 'environment', auto = true;
+let lens = 1, deviceId = null, digital = 1, backIdx = 0, cycling = 0;
 let prevFrame = null, solvedFrame = null, stableSince = 0;
 let t0 = 0, busy = false, lastKey = '', controller = null, cooldownUntil = 0, lastImg = null;
 const history = [];
@@ -139,21 +141,69 @@ $('guide').hidden = !$('crop').checked;
 
 function setStatus(text, kind){ $('statusText').textContent = text; $('dot').className = 'dot ' + (kind||''); }
 
+async function openStream(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  const v = {width:{ideal:2560}, height:{ideal:1920}};
+  if(deviceId) v.deviceId = {exact:deviceId}; else v.facingMode = facing;
+  stream = await navigator.mediaDevices.getUserMedia({video:v, audio:false});
+  video.srcObject = stream; await video.play();
+  try{ const tr = stream.getVideoTracks()[0]; const cap = tr.getCapabilities?.();
+    if(cap?.focusMode?.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+}
+
 async function startCam(){
   if(!$('apiKey').value.trim()){ setStatus('API 키를 입력하세요','err'); return; }
   savePrefs();
-  if(stream) stream.getTracks().forEach(t=>t.stop());
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:2560}, height:{ideal:1920}}, audio:false});
-    video.srcObject = stream; await video.play();
-    // try continuous autofocus where supported
-    try{ const tr = stream.getVideoTracks()[0]; const cap = tr.getCapabilities?.();
-      if(cap?.focusMode?.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+    await openStream();
     $('startBtn').textContent = '설정 저장 / 카메라 재시작';
     setStatus(auto ? '문제 찾는 중' : '자동 꺼짐', 'watch');
     try{ await navigator.wakeLock?.request('screen'); }catch(e){}
   }catch(e){ setStatus('카메라 권한이 필요해요','err'); }
 }
+
+// ---------- lens: 0.5x / 1x / 2x ----------
+function setDigital(z){ digital = z; video.style.transform = z>1 ? `scale(${z})` : ''; }
+async function backCams(){
+  const all = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+  const back = all.filter(d=>!/front|user|전면|facetime/i.test(d.label));
+  return back.length ? back : all;
+}
+async function setLens(z){
+  if(!stream){ setStatus('먼저 카메라를 시작하세요','err'); return; }
+  const track = () => stream.getVideoTracks()[0];
+  const cap = () => track().getCapabilities?.() || {};
+  setDigital(1); cycling = 0;
+  if(z === 0.5){
+    // 1) hardware zoom that goes below 1 (some Android phones)
+    if(cap().zoom && cap().zoom.min <= 0.6){
+      try{ await track().applyConstraints({advanced:[{zoom:Math.max(0.5, cap().zoom.min)}]}); lens=0.5; return done('0.5x 광각'); }catch(e){}
+    }
+    // 2) a separate ultra-wide camera (iPhone "Ultra Wide", many Androids)
+    const cams = await backCams();
+    const uw = cams.find(d=>/ultra|초광각|wide angle|광각|0\.5/i.test(d.label));
+    if(uw){ deviceId = uw.deviceId; await openStream(); lens=0.5; return done('0.5x 초광각 카메라'); }
+    // 3) unknown labels: step through the other back cameras
+    if(cams.length > 1){
+      backIdx = (backIdx + 1) % cams.length; deviceId = cams[backIdx].deviceId; await openStream(); lens=0.5; cycling = cams.length;
+      return done(`후면 카메라 ${backIdx+1}/${cams.length} · 광각이 아니면 다시 누르세요`);
+    }
+    setStatus('이 폰은 브라우저에서 광각 카메라를 열 수 없어요','err'); lens = 1; return updateBtn();
+  }
+  if(z === 1){
+    if(deviceId){ deviceId = null; backIdx = 0; await openStream(); }
+    try{ if(cap().zoom) await track().applyConstraints({advanced:[{zoom:Math.max(1, cap().zoom.min)}]}); }catch(e){}
+    lens = 1; return done('1x');
+  }
+  if(z === 2){
+    if(cap().zoom && cap().zoom.max >= 2){
+      try{ await track().applyConstraints({advanced:[{zoom:2}]}); lens=2; return done('2x'); }catch(e){}
+    }
+    setDigital(2); lens = 2; return done('2x (디지털)');
+  }
+}
+function updateBtn(){ $('lensBtn').textContent = (lens===0.5 ? '0.5' : lens) + 'x'; }
+function done(t){ updateBtn(); prevFrame = null; stableSince = 0; setStatus('렌즈: ' + t, 'watch'); }
 
 // ---------- change detection ----------
 function grab(){
@@ -188,7 +238,7 @@ function tick(){
 // ---------- capture: pick the sharpest of several frames ----------
 function cropRect(){
   const w = video.videoWidth, h = video.videoHeight;
-  if(!$('crop').checked) return [0,0,w,h];
+  if(!$('crop').checked){ const cw=w/digital, ch=h/digital; return [(w-cw)/2,(h-ch)/2,cw,ch]; }
   // guide box is drawn over an object-fit:cover video; map it back to source pixels
   const vb = video.getBoundingClientRect(), gb = $('guide').getBoundingClientRect();
   const s = Math.max(vb.width/w, vb.height/h), ox = (w*s - vb.width)/2, oy = (h*s - vb.height)/2;
@@ -365,7 +415,11 @@ $('startBtn').onclick = startCam;
 $('solveBtn').onclick = () => solveFromCamera(true);
 $('toggleBtn').onclick = () => { auto = !auto; $('toggleBtn').textContent = auto ? '자동 ON' : '자동 OFF';
   setStatus(auto ? '문제 찾는 중' : '자동 꺼짐 · 인식 버튼 사용', auto?'watch':''); };
-$('flipBtn').onclick = () => { facing = facing==='environment' ? 'user' : 'environment'; if(stream) startCam(); };
+$('flipBtn').onclick = () => { facing = facing==='environment' ? 'user' : 'environment'; deviceId = null; lens = 1; setDigital(1); updateBtn(); if(stream) startCam(); };
+$('lensBtn').onclick = () => {
+  if(lens===0.5 && cycling && backIdx < cycling-1) return setLens(0.5); // keep trying other back lenses
+  setLens(lens===1 ? 0.5 : lens===0.5 ? 2 : 1);
+};
 tick();
 </script>
 </body>
