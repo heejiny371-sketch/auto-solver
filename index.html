@@ -60,6 +60,22 @@ textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;borde
 .check input{margin-top:4px}
 .small{font-size:12px;color:var(--muted)}
 .setbtn{background:var(--accent);color:#fff}
+
+/* landscape phones: camera left, answer right, both fit the screen height */
+@media (orientation:landscape) and (max-height:600px){
+  .wrap{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);align-items:stretch;padding-block:8px;
+    height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+  .cam{aspect-ratio:auto;max-height:none;height:100%}
+  .side{overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+  .bar{padding:8px}
+  button{padding:10px 14px}
+  .answer{font-size:20px}
+}
+@media (min-width:820px) and (orientation:landscape){
+  .wrap{height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));align-items:stretch}
+  .cam{aspect-ratio:auto;max-height:none;height:100%}
+  .side{overflow-y:auto;height:100%}
+}
 </style>
 </head>
 <body>
@@ -73,10 +89,11 @@ textarea{width:100%;min-height:90px;font:14px/1.5 var(--font);padding:10px;borde
       <button class="primary" id="solveBtn">인식</button>
       <button class="ghost" id="lensBtn">1x</button>
       <button class="ghost" id="flipBtn">전환</button>
+      <button class="ghost" id="rotBtn" title="가로 화면">⟲ 가로</button>
     </div>
   </div>
 
-  <div style="display:grid;gap:12px;min-width:0">
+  <div class="side" style="display:grid;gap:12px;min-width:0;align-content:start">
     <div class="panel">
       <h2>정답</h2>
       <div id="result"><div class="small">아직 인식한 문제가 없어요.</div></div>
@@ -420,6 +437,27 @@ $('lensBtn').onclick = () => {
   if(lens===0.5 && cycling && backIdx < cycling-1) return setLens(0.5); // keep trying other back lenses
   setLens(lens===1 ? 0.5 : lens===0.5 ? 2 : 1);
 };
+
+// ---------- landscape ----------
+async function toggleLandscape(){
+  const o = screen.orientation;
+  const isLand = innerWidth > innerHeight;
+  try{
+    if(!isLand){
+      if(!document.fullscreenElement) await document.documentElement.requestFullscreen?.({navigationUI:'hide'});
+      await o.lock('landscape');
+    }else{
+      try{ o.unlock(); }catch(e){}
+      if(document.fullscreenElement) await document.exitFullscreen();
+    }
+  }catch(e){
+    setStatus('폰의 자동 회전을 켜고 폰을 가로로 돌려 주세요','err');
+  }
+}
+$('rotBtn').onclick = toggleLandscape;
+function rotLabel(){ $('rotBtn').textContent = innerWidth > innerHeight ? '⟲ 세로' : '⟲ 가로'; }
+addEventListener('resize', () => { prevFrame = null; stableSince = 0; rotLabel(); });
+rotLabel();
 tick();
 </script>
 </body>
